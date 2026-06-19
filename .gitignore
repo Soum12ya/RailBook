@@ -1,0 +1,82 @@
+# ── Python / Backend ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+*.pyo
+
+# Virtual environments — NEVER commit these
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables — contains secrets, NEVER commit
+.env
+.env.local
+.env.*.local
+*.env
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Alembic compiled cache
+alembic/__pycache__/
+alembic/versions/__pycache__/
+
+# Python cache in every subfolder
+**/__pycache__/
+**/*.pyc
+
+# ── Node / Frontend ───────────────────────────────────────────────────────────
+node_modules/
+trainapp/node_modules/
+.next/
+trainapp/.next/
+out/
+trainapp/out/
+*.tsbuildinfo
+trainapp/*.tsbuildinfo
+
+# ── OS files ──────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE / Editor ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Coverage & test artifacts ─────────────────────────────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# ── Celery ────────────────────────────────────────────────────────────────────
+celerybeat-schedule
+celerybeat.pid
