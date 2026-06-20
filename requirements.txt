@@ -12,7 +12,8 @@ python-dotenv==1.0.0
 redis==5.0.1
 celery==5.3.4
 kombu==5.3.2
-elasticsearch==8.11.0
+elasticsearch==8.15.0
 aio-pika==9.3.1
 flower==2.0.1
 Jinja2==3.1.2
+email-validator==2.1.0
