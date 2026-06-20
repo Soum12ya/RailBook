@@ -1,256 +1,485 @@
-# Train Ticket Booking Platform — Level 1
- 
-> A production-oriented IRCTC-like booking system. Built to learn, designed to evolve.
- 
+# 🚆 RailBook — Production-Grade Train Ticket Booking Platform
+
+<p align="center">
+  <strong>Full-Stack Train Reservation System Inspired by IRCTC</strong>
+</p>
+
+<p align="center">
+  Next.js • FastAPI • PostgreSQL • Redis • RabbitMQ • Celery • Elasticsearch
+</p>
+
 ---
- 
-## Architecture (Level 1)
- 
-```
-┌─────────────────────────────────────────────────┐
-│                  Client (Browser / Postman)     │
-└─────────────────┬───────────────────────────────┘
-                  │ HTTP
-┌─────────────────▼───────────────────────────────┐
-│           FastAPI Application (main.py)         │
-│                                                 │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │  /auth   │  │ /trains  │  │  /bookings    │  │
-│  │  router  │  │  router  │  │   router      │  │
-│  └────┬─────┘  └────┬─────┘  └───────┬───────┘  │
-│       │              │                │         │
-│  ┌────▼──────────────▼────────────────▼───────┐ │
-│  │          Service Layer                     │ │
-│  │  auth_service.py   booking_service.py      │ │
-│  └────────────────────────┬───────────────────┘ │
-│                            │                    │
-│  ┌─────────────────────────▼───────────────────┐│
-│  │         SQLAlchemy ORM (models.py)          ││
-│  └─────────────────────────┬───────────────────┘ │
-└────────────────────────────┼─────────────────────┘
+
+## 📌 Overview
+
+RailBook is a production-oriented train ticket booking platform designed to simulate the challenges faced by real-world reservation systems.
+
+Unlike typical CRUD projects, RailBook focuses on:
+
+* Preventing double booking under concurrency
+* Idempotent booking operations
+* Waitlist management and promotion
+* Distributed caching
+* Asynchronous processing
+* Full-text search
+* Clean Architecture principles
+* Production deployment practices
+
+The project demonstrates how modern large-scale booking platforms are designed and implemented using industry-standard technologies.
+
+---
+
+# 🚀 Live Architecture
+
+```text
+                    ┌─────────────────┐
+                    │   Next.js App   │
+                    │ React + TS      │
+                    └────────┬────────┘
                              │
-              ┌──────────────▼──────────────┐
-              │    PostgreSQL Database      │
-              │   (single DB, Level 1)      │
-              └─────────────────────────────┘
+                             ▼
+                    ┌─────────────────┐
+                    │ FastAPI Backend │
+                    │ Python 3.11     │
+                    └───────┬─────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        ▼                   ▼                   ▼
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│ PostgreSQL  │    │    Redis    │    │Elasticsearch│
+│ Source Truth│    │ Cache Layer │    │ Search Layer│
+└─────────────┘    └─────────────┘    └─────────────┘
+                            │
+                            ▼
+                    ┌─────────────┐
+                    │ RabbitMQ    │
+                    └──────┬──────┘
+                           ▼
+                    ┌─────────────┐
+                    │ Celery      │
+                    │ Workers     │
+                    └─────────────┘
 ```
- 
-**Data flow**: Request → Router (validates HTTP) → Service (business logic) → ORM → DB
- 
+
 ---
- 
-## Quick Start
- 
-### Option A — Docker (recommended)
- 
-```bash
-# Clone and start
-git clone <repo>
-cd train_booking
-docker-compose up --build
- 
-# In a second terminal, seed sample data
-docker exec train_booking_api python seed_data.py
-```
- 
-Visit **http://localhost:8000/docs** — the interactive Swagger UI.
- 
-### Option B — Local Python
- 
-```bash
-# 1. Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
- 
-# 2. Install dependencies
-pip install -r requirements.txt
- 
-# 3. Set up PostgreSQL (must be running locally)
-#    createdb train_booking
- 
-# 4. Copy env file and configure
-cp .env.example .env
-# Edit DATABASE_URL to point at your local Postgres
- 
-# 5. Start the server
-uvicorn main:app --reload --port 8000
- 
-# 6. Seed sample data
-python seed_data.py
-```
- 
+
+# ✨ Core Features
+
+## User Features
+
+* User Registration & Login
+* JWT Authentication
+* Train Search
+* Station Search
+* Seat Availability Check
+* Ticket Booking
+* PNR Status Tracking
+* Booking History
+* Ticket Cancellation
+* Waitlist Management
+* Refund Calculation
+
 ---
- 
-## Database Schema
- 
-```
-users
-  id (PK, UUID)
-  email (unique, indexed)
-  phone (unique, indexed)
-  full_name
-  hashed_password   ← bcrypt, never plain text
-  is_admin
-  created_at
- 
-stations
-  id (PK, UUID)
-  code (unique, indexed)  ← e.g. "NDLS", "CSTM"
-  name, city, state, zone
- 
-trains
-  id (PK, UUID)
-  train_number (unique, indexed)
-  train_name
-  source_station_id → stations.id
-  destination_station_id → stations.id
-  departure_time, arrival_time  ("HH:MM")
-  duration_mins, total_distance_km
-  days_of_week  (JSON array, 0=Mon … 6=Sun)
-  is_active
- 
-train_stops
-  id (PK, UUID)
-  train_id → trains.id
-  station_id → stations.id
-  stop_order, arrival_time, departure_time, distance_km
- 
-seat_classes
-  id (PK, UUID)
-  train_id → trains.id
-  class_type  (SL / 3A / 2A / 1A / CC / EC / GN)
-  total_seats, available_seats   ← LIVE COUNTER
-  rac_seats, rac_available
-  waitlist_quota, current_waitlist
-  base_fare_per_km
- 
-bookings
-  id (PK, UUID)
-  pnr (unique, indexed)  ← 10-digit, like IRCTC
-  user_id → users.id
-  train_id → trains.id
-  seat_class_id → seat_classes.id
-  source_station_id, destination_station_id
-  journey_date
-  status  (CONFIRMED / RAC / WAITING / CANCELLED)
-  total_amount, payment_status, transaction_id
-  created_at, cancelled_at
- 
-passengers
-  id (PK, UUID)
-  booking_id → bookings.id
-  full_name, age, gender, berth_preference
-  seat_number, coach_number
-  status, waitlist_number
-```
- 
+
+## Admin Features
+
+* Train Management
+* Station Management
+* Booking Monitoring
+* Seat Inventory Management
+* Operational Dashboard
+
 ---
- 
-## API Endpoints
- 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| POST | /auth/register | — | Create account |
-| POST | /auth/login | — | Get JWT token |
-| GET | /auth/me | ✓ | My profile |
-| GET | /stations | — | List stations |
-| GET | /stations/{code} | — | Get one station |
-| POST | /stations | Admin | Add station |
-| POST | /trains | Admin | Add train |
-| GET | /trains/{id} | — | Train details |
-| POST | /trains/search | — | Search trains |
-| PUT | /trains/{id}/status | Admin | Activate/deactivate |
-| POST | /bookings | ✓ | Book ticket |
-| GET | /bookings | ✓ | My bookings |
-| GET | /bookings/pnr/{pnr} | — | PNR status |
-| GET | /bookings/{id} | ✓ | Booking detail |
-| PUT | /bookings/{id}/cancel | ✓ | Cancel booking |
-| PUT | /bookings/{id}/payment | ✓ | Confirm payment |
- 
----
- 
-## Testing Flow (step-by-step)
- 
-```bash
-BASE=http://localhost:8000
- 
-# 1. Register
-curl -X POST $BASE/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"full_name":"Ravi Kumar","email":"ravi@test.com","phone":"9123456789","password":"ravi1234"}'
- 
-# 2. Login (save the token)
-TOKEN=$(curl -s -X POST $BASE/auth/login \
-  -d "username=ravi@test.com&password=ravi1234" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
- 
-# 3. Search trains
-curl -X POST $BASE/trains/search \
-  -H "Content-Type: application/json" \
-  -d '{"source_station_code":"NDLS","destination_station_code":"CSTM","journey_date":"2025-12-10"}'
- 
-# 4. Book a ticket (replace IDs from step 3)
-curl -X POST $BASE/bookings \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "train_id": "<from_search>",
-    "seat_class_id": "<from_search>",
-    "source_station_code": "NDLS",
-    "destination_station_code": "CSTM",
-    "journey_date": "2025-12-10",
-    "passengers": [
-      {"full_name": "Ravi Kumar", "age": 28, "gender": "M", "berth_preference": "LB"}
-    ]
-  }'
- 
-# 5. Check PNR status (no auth needed)
-curl $BASE/bookings/pnr/<YOUR_PNR>
- 
-# 6. Cancel booking
-curl -X PUT $BASE/bookings/<BOOKING_ID>/cancel \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"reason": "Change of plans"}'
-```
- 
----
- 
-## Key Engineering Concepts at Level 1
- 
-### Why SQLAlchemy ORM?
-- Write Python classes, get SQL tables automatically
-- `session.add()` + `session.commit()` = INSERT + COMMIT
-- `session.rollback()` on errors keeps the DB consistent
-- Easy to switch DB (SQLite → PostgreSQL) by changing one URL
-### Why UUID primary keys?
-- No auto-increment collisions when you later shard the DB
-- PNR is human-readable (10 digits); internal ID is UUID
-### Why JWT instead of sessions?
-- Sessions require server-side storage (a `sessions` table or Redis)
-- JWTs are self-contained — the token itself carries user info
-- Server validates the signature, no DB lookup needed
-- Scales horizontally without a shared session store
-### The Concurrency Bug (learn this!)
-At Level 1, the booking flow has a race condition:
+
+# 🏗 System Design Highlights
+
+## 1. Double Booking Prevention
+
+One of the most difficult problems in ticketing systems is ensuring that two users cannot reserve the last available seat simultaneously.
+
+RailBook solves this using:
+
 ```sql
--- Thread A                    -- Thread B
-SELECT available_seats = 1     SELECT available_seats = 1
-(1 seat available!)            (1 seat available!)
-UPDATE SET available_seats = 0  UPDATE SET available_seats = 0
--- Both think they got the seat!
+SELECT ...
+FOR UPDATE
 ```
- 
-**Level 2 fix**: `SELECT ... FOR UPDATE` locks the row so Thread B
-must wait until Thread A commits or rolls back.
- 
+
+### Why?
+
+Without locking:
+
+```text
+User A reads seats = 1
+User B reads seats = 1
+
+User A books seat
+User B books seat
+
+Result:
+2 confirmed bookings
+1 physical seat
+```
+
+With PostgreSQL Row-Level Locking:
+
+```text
+User A acquires lock
+User B waits
+
+User A books seat
+Commit
+
+User B reads updated value
+Seats = 0
+
+Booking denied
+```
+
+This guarantees seat consistency even under concurrent requests.
+
 ---
- 
-## What's Next (Level 2)
- 
-- [ ] Fix the concurrency bug with `SELECT FOR UPDATE`
-- [ ] Implement proper waitlist promotion when a booking cancels
-- [ ] Add partial refund calculation based on cancellation time
-- [ ] Layered architecture: proper Repository pattern
-- [ ] Input validation layer (rate limiting per user)
-- [ ] Admin analytics endpoints
-- [ ] Alembic migrations (instead of create_all)
+
+## 2. Idempotent Booking API
+
+Network failures should never create duplicate bookings.
+
+Every booking request supports:
+
+```http
+X-Idempotency-Key: UUID
+```
+
+If a request is retried:
+
+```text
+Client Retry
+      ↓
+Same Idempotency Key
+      ↓
+Existing Booking Returned
+      ↓
+No Duplicate Ticket
+```
+
+---
+
+## 3. Waitlist Promotion Cascade
+
+When a confirmed ticket is cancelled:
+
+```text
+WAITLIST-1 → RAC
+RAC → CONFIRMED
+```
+
+Promotion occurs automatically while preserving booking order.
+
+---
+
+## 4. Clean Architecture
+
+```text
+Router Layer
+      ↓
+Service Layer
+      ↓
+Repository Layer
+      ↓
+Database Layer
+```
+
+### Benefits
+
+* Easier testing
+* Better maintainability
+* Separation of concerns
+* Enterprise-ready code organization
+
+---
+
+# ⚙️ Tech Stack
+
+## Frontend
+
+* Next.js 14
+* React
+* TypeScript
+* Tailwind CSS
+* Zustand
+
+## Backend
+
+* Python 3.11
+* FastAPI
+* SQLAlchemy 2
+* Pydantic v2
+* Alembic
+
+## Database
+
+* PostgreSQL
+
+## Caching
+
+* Redis
+
+## Messaging
+
+* RabbitMQ
+
+## Async Processing
+
+* Celery
+
+## Search
+
+* Elasticsearch
+
+## Authentication
+
+* JWT
+* bcrypt
+
+---
+
+# 📦 Database Design
+
+Core Entities:
+
+```text
+Users
+Stations
+Trains
+TrainStops
+SeatClasses
+Bookings
+Passengers
+```
+
+Relationships:
+
+```text
+User
+ │
+ ├── Bookings
+ │       │
+ │       └── Passengers
+
+Train
+ │
+ ├── Stops
+ │
+ └── Seat Classes
+```
+
+---
+
+# 🔥 Production Features
+
+## Redis
+
+Used for:
+
+* Search caching
+* Seat availability cache
+* Session blacklist
+* Rate limiting
+
+Benefits:
+
+```text
+10x–50x fewer DB reads
+Sub-millisecond access
+Improved API latency
+```
+
+---
+
+## RabbitMQ + Celery
+
+Background Tasks:
+
+* Booking confirmation emails
+* Cancellation notifications
+* Waitlist promotion jobs
+
+Benefits:
+
+```text
+HTTP response remains fast
+Heavy work moved off request path
+Better scalability
+```
+
+---
+
+## Elasticsearch
+
+Supports:
+
+* Partial search
+* Typo tolerance
+* Fast station lookup
+* Full-text train search
+
+Example:
+
+```text
+mumbi
+```
+
+returns:
+
+```text
+Mumbai
+```
+
+---
+
+# 📈 Scalability Roadmap
+
+## Level 1
+
+Monolithic Booking System
+
+* FastAPI
+* PostgreSQL
+
+---
+
+## Level 2
+
+Concurrency Safe
+
+* SELECT FOR UPDATE
+* Repository Pattern
+* Waitlist Promotion
+* Idempotency
+* Alembic
+
+---
+
+## Level 3
+
+Production Ready
+
+* Redis
+* RabbitMQ
+* Celery
+* Elasticsearch
+
+---
+
+## Future Improvements
+
+### Payments
+
+* Stripe Integration
+* Webhook Verification
+
+### Real-Time Updates
+
+* WebSockets
+* Live Seat Availability
+
+### Monitoring
+
+* Prometheus
+* Grafana
+
+### Distributed Scaling
+
+* Kubernetes
+* Redis Distributed Locks
+* PgBouncer
+
+---
+
+# 🧪 Testing
+
+Backend
+
+```bash
+pytest
+```
+
+Frontend
+
+```bash
+npm test
+```
+
+Build
+
+```bash
+npm run build
+```
+
+---
+
+# 🔒 Security
+
+Implemented:
+
+* JWT Authentication
+* Password Hashing (bcrypt)
+* Token Expiration
+* Redis JWT Blacklist
+* Input Validation
+* SQL Injection Protection via ORM
+
+Future:
+
+* RBAC
+* OAuth2
+* Audit Logs
+
+---
+
+# 🚀 Deployment
+
+Frontend
+
+* Vercel
+
+Backend
+
+* Railway
+
+Services
+
+* PostgreSQL
+* Redis
+* RabbitMQ
+* Elasticsearch
+
+Environment variables are managed securely using deployment platform secrets.
+
+---
+
+# 🎯 What This Project Demonstrates
+
+This project demonstrates practical understanding of:
+
+* Backend Engineering
+* Distributed Systems
+* Database Design
+* Concurrency Control
+* API Design
+* Caching
+* Asynchronous Processing
+* Search Infrastructure
+* System Design
+* Production Deployment
+
+Rather than being a CRUD application, RailBook focuses on solving real-world engineering problems encountered in high-traffic reservation systems.
+
+---
+
+## 👨‍💻 Author
+
+**Soumyajit Bhandary**
+
+Machine Learning • Data Engineering • Backend Systems • AI Applications
+
+Built as a system-design-focused project to explore production-grade booking architecture and scalability patterns.
