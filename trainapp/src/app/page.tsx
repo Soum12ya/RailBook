@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { ArrowRight, Shield, Zap, Clock } from 'lucide-react'
 
+export const dynamic = 'force-dynamic'
+
 export default function HomePage() {
   return (
     <div className="flex flex-col">
