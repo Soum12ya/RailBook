@@ -1,6 +1,6 @@
 'use client'
-import { Clock, Calendar, ArrowRight, AlertCircle } from 'lucide-react'
-import { formatDuration, formatTime, runsDays, CLASS_LABELS, formatAmount, cn } from '@/lib/utils'
+import { Clock, ArrowRight, AlertCircle } from 'lucide-react'
+import { formatDuration, formatTime, CLASS_LABELS, cn } from '@/lib/utils'
 import type { TrainAvailability, SeatClassEnum } from '@/types'
 
 interface Props {
@@ -46,7 +46,7 @@ export default function TrainCard({ train, journeyDate, onBook }: Props) {
       {!train.runs_on_date && (
         <div className="flex items-center gap-2 bg-orange-50 px-5 py-2 text-xs text-orange-700">
           <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-          This train does not run on the selected date. Runs on: {runsDays(train.days_of_week)}
+          This train does not run on the selected date.
         </div>
       )}
 
