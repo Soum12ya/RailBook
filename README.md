@@ -1,485 +1,627 @@
-# 🚆 RailBook — Production-Grade Train Ticket Booking Platform
+# 🚆 RailBook — Production-Grade Train Booking Platform
 
-<p align="center">
-  <strong>Full-Stack Train Reservation System Inspired by IRCTC</strong>
-</p>
+> A full-stack IRCTC-style train booking system built with **FastAPI + PostgreSQL + Redis + Elasticsearch + RabbitMQ + Celery + Next.js 14**, implementing every pattern that matters in real backend engineering: pessimistic locking, cache invalidation, async task queues, idempotency, full-text search, and waitlist promotion cascades.
 
-<p align="center">
-  Next.js • FastAPI • PostgreSQL • Redis • RabbitMQ • Celery • Elasticsearch
-</p>
+<div align="center">
 
----
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688?style=for-the-badge&logo=fastapi&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791?style=for-the-badge&logo=postgresql&logoColor=white)
+![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=for-the-badge&logo=redis&logoColor=white)
+![Elasticsearch](https://img.shields.io/badge/Elasticsearch-8-005571?style=for-the-badge&logo=elasticsearch&logoColor=white)
+![RabbitMQ](https://img.shields.io/badge/RabbitMQ-3-FF6600?style=for-the-badge&logo=rabbitmq&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge&logo=typescript&logoColor=white)
 
-## 📌 Overview
-
-RailBook is a production-oriented train ticket booking platform designed to simulate the challenges faced by real-world reservation systems.
-
-Unlike typical CRUD projects, RailBook focuses on:
-
-* Preventing double booking under concurrency
-* Idempotent booking operations
-* Waitlist management and promotion
-* Distributed caching
-* Asynchronous processing
-* Full-text search
-* Clean Architecture principles
-* Production deployment practices
-
-The project demonstrates how modern large-scale booking platforms are designed and implemented using industry-standard technologies.
+</div>
 
 ---
 
-# 🚀 Live Architecture
+## 📌 Why This Project Exists
 
-```text
-                    ┌─────────────────┐
-                    │   Next.js App   │
-                    │ React + TS      │
-                    └────────┬────────┘
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │ FastAPI Backend │
-                    │ Python 3.11     │
-                    └───────┬─────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│ PostgreSQL  │    │    Redis    │    │Elasticsearch│
-│ Source Truth│    │ Cache Layer │    │ Search Layer│
-└─────────────┘    └─────────────┘    └─────────────┘
-                            │
-                            ▼
-                    ┌─────────────┐
-                    │ RabbitMQ    │
-                    └──────┬──────┘
-                           ▼
-                    ┌─────────────┐
-                    │ Celery      │
-                    │ Workers     │
-                    └─────────────┘
+Most student projects stop at CRUD. This one starts there and goes further — tackling the exact problems that cause production systems to fail under real load:
+
+- **Two users booking the last seat simultaneously** → solved with `SELECT FOR UPDATE`
+- **Stale seat counts after booking** → solved with targeted Redis cache invalidation
+- **HTTP response blocked by email sending** → solved by dispatching Celery tasks to RabbitMQ
+- **Search returning "No trains" for valid intermediate stops** → solved by querying `train_stops` instead of terminal stations
+- **Duplicate bookings on network retry** → solved with idempotency keys
+- **Instant logout without JWT expiry** → solved with Redis token blacklisting
+
+Every architectural decision here maps directly to a real-world production pattern.
+
+---
+
+## 🏗️ Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         CLIENT LAYER                            │
+│              Next.js 14 · TypeScript · Tailwind CSS             │
+│         (Search · Booking · PNR · Admin Panel · Auth)           │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ HTTPS
+┌─────────────────────────▼───────────────────────────────────────┐
+│                          API LAYER                              │
+│                    FastAPI (Uvicorn ASGI)                       │
+│         Auth · Trains · Bookings · Admin · Health               │
+└────┬──────────┬──────────┬──────────┬──────────┬───────────────┘
+     │          │          │          │          │
+┌────▼───┐ ┌───▼────┐ ┌───▼───┐ ┌───▼────┐ ┌──▼──────────┐
+│Postgres│ │ Redis  │ │  ES   │ │Rabbit  │ │   Celery    │
+│  18    │ │   7    │ │   8   │ │  MQ    │ │  Workers    │
+│        │ │        │ │       │ │        │ │             │
+│bookings│ │cache   │ │search │ │broker  │ │notifications│
+│trains  │ │rate    │ │trains │ │queues  │ │promotions   │
+│users   │ │limit   │ │stns   │ │tasks   │ │             │
+│seats   │ │blacklst│ │       │ │        │ │             │
+└────────┘ └────────┘ └───────┘ └────────┘ └─────────────┘
 ```
 
 ---
 
-# ✨ Core Features
+## 🔧 Tech Stack
 
-## User Features
+### Backend
+| Layer | Technology | Purpose |
+|---|---|---|
+| API Framework | FastAPI 0.104 | Async REST API, automatic OpenAPI docs |
+| Database | PostgreSQL 18 | Primary data store, ACID transactions |
+| ORM | SQLAlchemy 2.0 | Type-safe database access, connection pooling |
+| Migrations | Alembic | Versioned schema changes, safe rollbacks |
+| Cache | Redis 7 | Search result cache, seat availability, rate limiting |
+| Search | Elasticsearch 8 | Full-text train/station search with fuzzy matching |
+| Message Broker | RabbitMQ | Async task queue (notifications, promotions) |
+| Task Queue | Celery 5 | Background workers with retry logic |
+| Auth | JWT + bcrypt | Stateless auth, password hashing |
+| Validation | Pydantic v2 | Request/response schema validation |
 
-* User Registration & Login
-* JWT Authentication
-* Train Search
-* Station Search
-* Seat Availability Check
-* Ticket Booking
-* PNR Status Tracking
-* Booking History
-* Ticket Cancellation
-* Waitlist Management
-* Refund Calculation
+### Frontend
+| Layer | Technology | Purpose |
+|---|---|---|
+| Framework | Next.js 14 App Router | SSR/CSR hybrid, file-based routing |
+| Language | TypeScript 5 | Full type safety across API boundary |
+| Styling | Tailwind CSS | Utility-first, responsive design |
+| State | Zustand + persist | Auth state with localStorage persistence |
+| Toast | react-hot-toast | User feedback on actions |
 
----
-
-## Admin Features
-
-* Train Management
-* Station Management
-* Booking Monitoring
-* Seat Inventory Management
-* Operational Dashboard
-
----
-
-# 🏗 System Design Highlights
-
-## 1. Double Booking Prevention
-
-One of the most difficult problems in ticketing systems is ensuring that two users cannot reserve the last available seat simultaneously.
-
-RailBook solves this using:
-
-```sql
-SELECT ...
-FOR UPDATE
-```
-
-### Why?
-
-Without locking:
-
-```text
-User A reads seats = 1
-User B reads seats = 1
-
-User A books seat
-User B books seat
-
-Result:
-2 confirmed bookings
-1 physical seat
-```
-
-With PostgreSQL Row-Level Locking:
-
-```text
-User A acquires lock
-User B waits
-
-User A books seat
-Commit
-
-User B reads updated value
-Seats = 0
-
-Booking denied
-```
-
-This guarantees seat consistency even under concurrent requests.
+### Infrastructure
+| Tool | Purpose |
+|---|---|
+| WSL2 + Ubuntu 22 | Development environment |
+| Vercel | Frontend deployment |
+| GitHub Actions ready | CI/CD pipeline |
 
 ---
 
-## 2. Idempotent Booking API
+## 🧠 Engineering Decisions That Matter
 
-Network failures should never create duplicate bookings.
+### 1. Pessimistic Locking — Preventing Double Booking
 
-Every booking request supports:
+The most critical correctness problem in any booking system. When two users click "Book" for the last seat simultaneously, a naive implementation creates two confirmed bookings for one physical seat.
 
-```http
-X-Idempotency-Key: UUID
+**The fix:** `SELECT ... FOR UPDATE` acquires an exclusive row lock in PostgreSQL. The second request waits at the database level — it cannot even read the seat count until the first transaction commits.
+
+```python
+# repositories/train_repo.py
+def get_seat_class_with_lock(self, seat_class_id: str, train_id: str):
+    return (
+        db.query(SeatClass)
+        .filter(SeatClass.id == seat_class_id, SeatClass.train_id == train_id)
+        .with_for_update()   # ← PostgreSQL row-level lock
+        .first()
+    )
 ```
 
-If a request is retried:
-
-```text
-Client Retry
-      ↓
-Same Idempotency Key
-      ↓
-Existing Booking Returned
-      ↓
-No Duplicate Ticket
-```
+Without this, two threads reading `available_seats = 1` both proceed to confirm — a classic lost update. With this, Thread B blocks until Thread A commits, then reads `available_seats = 0` and correctly returns waitlist.
 
 ---
 
-## 3. Waitlist Promotion Cascade
+### 2. Read-Through Cache with Targeted Invalidation
 
-When a confirmed ticket is cancelled:
+Train search is the most frequent read. Without caching, every search executes a multi-join SQL query across trains, stops, and seat classes.
 
-```text
-WAITLIST-1 → RAC
-RAC → CONFIRMED
+```
+Search → Redis HIT → return in <1ms   (no DB hit)
+Search → Redis MISS → PostgreSQL → store in Redis → return
+Booking → PostgreSQL commit → invalidate search:* keys → next search hits DB fresh
 ```
 
-Promotion occurs automatically while preserving booking order.
+Cache keys are structured for precise invalidation:
+```
+search:{src}:{dest}:{date}:{class}  → train search results
+seats:{train_id}:{class_id}:{date}  → seat availability snapshot
+bl:{token}                          → JWT blacklist for logout
+ratelimit:{ip}                      → sliding window rate limit
+```
+
+When a booking is made, only the relevant search and seat keys are invalidated — not the entire cache.
 
 ---
 
-## 4. Clean Architecture
+### 3. Intermediate Stop Search
 
-```text
-Router Layer
-      ↓
-Service Layer
-      ↓
-Repository Layer
-      ↓
-Database Layer
+Real train routing is not point-to-point. A train from Howrah to Asansol stops at Bardhaman and Durgapur. Users should be able to search any valid sub-segment.
+
+**Naive approach (broken):** Filter trains where `source_station_id = src AND destination_station_id = dest` — only matches terminal stations.
+
+**Correct approach:** Query `train_stops` for both stations, then find trains where source stop order < destination stop order.
+
+```python
+src_map  = {s.train_id: s.stop_order for s in src_stops}
+dest_map = {s.train_id: s.stop_order for s in dest_stops}
+
+valid_ids = [
+    tid for tid in src_map
+    if tid in dest_map and src_map[tid] < dest_map[tid]
+]
 ```
 
-### Benefits
-
-* Easier testing
-* Better maintainability
-* Separation of concerns
-* Enterprise-ready code organization
+Now Howrah→Bardhaman, Bardhaman→Durgapur, and Durgapur→Asansol all return the correct train.
 
 ---
 
-# ⚙️ Tech Stack
+### 4. Async Notifications via Celery + RabbitMQ
 
-## Frontend
+Sending an email takes 300-800ms. Making the booking HTTP response wait for that is unacceptable. The solution: fire-and-forget to a message queue.
 
-* Next.js 14
-* React
-* TypeScript
-* Tailwind CSS
-* Zustand
-
-## Backend
-
-* Python 3.11
-* FastAPI
-* SQLAlchemy 2
-* Pydantic v2
-* Alembic
-
-## Database
-
-* PostgreSQL
-
-## Caching
-
-* Redis
-
-## Messaging
-
-* RabbitMQ
-
-## Async Processing
-
-* Celery
-
-## Search
-
-* Elasticsearch
-
-## Authentication
-
-* JWT
-* bcrypt
-
----
-
-# 📦 Database Design
-
-Core Entities:
-
-```text
-Users
-Stations
-Trains
-TrainStops
-SeatClasses
-Bookings
-Passengers
+```
+POST /bookings
+  → PostgreSQL commit (50ms)
+  → send_booking_confirmation.delay(...)  ← non-blocking, ~1ms
+  → HTTP 201 response returned             ← user sees result immediately
+       ↓
+  RabbitMQ queue
+       ↓
+  Celery worker picks up task
+       ↓
+  SMTP email sent (300ms, in background)
 ```
 
-Relationships:
-
-```text
-User
- │
- ├── Bookings
- │       │
- │       └── Passengers
-
-Train
- │
- ├── Stops
- │
- └── Seat Classes
+Tasks are configured with automatic retry on failure:
+```python
+@celery_app.task(bind=True, max_retries=3, default_retry_delay=30)
+def send_booking_confirmation(self, ...):
+    try:
+        _send_email(...)
+    except Exception as exc:
+        raise self.retry(exc=exc)   # exponential back-off: 30s → 60s → 120s
 ```
 
 ---
 
-# 🔥 Production Features
+### 5. Idempotency Keys — Safe Network Retries
 
-## Redis
+When a client sends a booking request and gets a timeout, it doesn't know if the server processed it. Without idempotency, retrying creates a duplicate booking and double-charges the user.
 
-Used for:
+Every booking request includes a client-generated UUID in the `X-Idempotency-Key` header. The server checks this key before processing:
 
-* Search caching
-* Seat availability cache
-* Session blacklist
-* Rate limiting
+```python
+existing = booking_repo.get_by_idempotency_key(idempotency_key)
+if existing:
+    return existing   # return original booking — no duplicate
+```
 
-Benefits:
+A UNIQUE constraint on `bookings.idempotency_key` provides a second layer — even if two requests with the same key arrive simultaneously, only one INSERT succeeds.
 
-```text
-10x–50x fewer DB reads
-Sub-millisecond access
-Improved API latency
+---
+
+### 6. Waitlist Promotion Cascade
+
+When a confirmed booking is cancelled, the seat queue must shift:
+- First RAC passenger → CONFIRMED (gets real berth)
+- First Waitlist passenger → RAC
+- Remaining waitlist numbers shift down by 1
+
+In Level 2 this ran synchronously inside the cancel HTTP request. In Level 3 it runs as a Celery background task — the HTTP response returns in ~50ms and promotion happens in the background, with email notifications fired for each promoted passenger.
+
+---
+
+### 7. Partial Refund Policy
+
+Cancellation charges follow IRCTC's real refund policy:
+
+| Time before departure | Refund |
+|---|---|
+| > 48 hours | 90% |
+| 12 – 48 hours | 75% |
+| 4 – 12 hours | 50% |
+| < 4 hours | 0% |
+
+```python
+REFUND_POLICY = [(48, 0.90), (12, 0.75), (4, 0.50), (0, 0.00)]
+
+def calculate_refund(total_amount, journey_date, departure_time):
+    hours_before = (departure_dt - datetime.now(timezone.utc)).total_seconds() / 3600
+    for threshold, pct in REFUND_POLICY:
+        if hours_before >= threshold:
+            return round(total_amount * pct, 2)
+    return 0.0
 ```
 
 ---
 
-## RabbitMQ + Celery
+### 8. Repository Pattern
 
-Background Tasks:
+Database queries are separated from business logic. Services never call `db.query()` directly — they use repository methods. This makes the system testable (swap real repos with fakes in tests) and maintainable (fix a query in one place).
 
-* Booking confirmation emails
-* Cancellation notifications
-* Waitlist promotion jobs
-
-Benefits:
-
-```text
-HTTP response remains fast
-Heavy work moved off request path
-Better scalability
+```
+routers/       → HTTP: parse request, call service, return response
+services/      → Business rules: who gets a seat, how fare is calculated
+repositories/  → Data access: all SQL lives here
+models/        → ORM: table definitions
+schemas/       → Pydantic: request/response validation
+cache/         → Redis: caching, rate limiting, session store
+workers/       → Celery: async task definitions
+search/        → Elasticsearch: indexing and querying
 ```
 
 ---
 
-## Elasticsearch
+## 📁 Project Structure
 
-Supports:
+```
+Ticket_System/                        ← FastAPI Backend
+├── .env                              ← secrets (never committed)
+├── config.py                         ← Pydantic settings from .env
+├── database.py                       ← SQLAlchemy engine + session
+├── models.py                         ← 7 ORM tables
+├── schemas.py                        ← Pydantic request/response schemas
+├── main.py                           ← FastAPI app, startup events
+├── seed_data.py                      ← Seed DB with stations, trains, users
+├── seed_elasticsearch.py             ← Bulk index existing data into ES
+│
+├── cache/                            ← Redis Layer
+│   ├── redis_client.py               ← connection pool, get/set/delete
+│   ├── rate_limiter.py               ← sliding-window limiter (Redis ZADD)
+│   ├── seat_cache.py                 ← seat availability cache + invalidation
+│   └── session_store.py             ← JWT blacklist for instant logout
+│
+├── workers/                          ← Celery + RabbitMQ
+│   ├── celery_app.py                 ← broker config, named queues
+│   ├── notification_tasks.py         ← booking/cancel/promotion emails
+│   └── promotion_tasks.py           ← background waitlist cascade
+│
+├── search/                           ← Elasticsearch
+│   ├── es_client.py                  ← client, index creation, mappings
+│   ├── indexer.py                    ← index_train(), index_station()
+│   └── searcher.py                  ← fuzzy search with field boosting
+│
+├── repositories/                     ← Data Access Layer
+│   ├── base.py                       ← Generic CRUD base (Generic[T])
+│   ├── train_repo.py                 ← Station, Train, SeatClass queries
+│   └── booking_repo.py              ← Booking, Passenger, idempotency
+│
+├── services/                         ← Business Logic
+│   ├── auth_service.py               ← bcrypt, JWT, blacklist check
+│   └── booking_service.py           ← seat allocation, fare, cascade
+│
+├── routers/                          ← HTTP Route Handlers
+│   ├── auth.py                       ← register, login, logout, /me
+│   ├── trains.py                     ← search (cached), create (admin)
+│   └── bookings.py                  ← book, cancel, PNR, payment
+│
+└── alembic/                          ← DB Migrations
+    └── versions/                     ← versioned migration scripts
 
-* Partial search
-* Typo tolerance
-* Fast station lookup
-* Full-text train search
-
-Example:
-
-```text
-mumbi
+trainapp/                             ← Next.js 14 Frontend
+├── src/
+│   ├── app/
+│   │   ├── page.tsx                  ← Home + PNR quick check
+│   │   ├── search/page.tsx           ← Train search + booking modal
+│   │   ├── pnr/page.tsx             ← Public PNR status lookup
+│   │   ├── bookings/
+│   │   │   ├── page.tsx             ← My bookings list with filters
+│   │   │   └── [id]/page.tsx        ← Booking detail + cancel + pay
+│   │   ├── auth/
+│   │   │   ├── login/page.tsx
+│   │   │   └── register/page.tsx
+│   │   └── admin/
+│   │       ├── page.tsx             ← Dashboard + system health
+│   │       ├── trains/page.tsx      ← Train management + add train
+│   │       ├── stations/page.tsx    ← Station management + add station
+│   │       └── bookings/page.tsx    ← All bookings view
+│   ├── components/
+│   │   ├── layout/Navbar.tsx        ← Responsive nav, auth state
+│   │   ├── booking/TrainCard.tsx    ← Search result card with classes
+│   │   ├── booking/PassengerForm.tsx← Dynamic passenger entry (max 6)
+│   │   └── ui/StationInput.tsx      ← Autocomplete with ES + debounce
+│   ├── lib/
+│   │   ├── api.ts                   ← All fetch calls to FastAPI
+│   │   ├── adminApi.ts              ← Admin-only API calls
+│   │   ├── store.ts                 ← Zustand auth store + persist
+│   │   └── utils.ts                 ← formatTime, formatAmount, etc.
+│   └── types/index.ts               ← TypeScript types mirroring backend schemas
 ```
 
-returns:
+---
 
-```text
-Mumbai
+## 🗄️ Database Schema
+
+```
+users ──────────────────────────────────────────────────────────┐
+  id, email (unique), phone (unique), hashed_password, is_admin │
+                                                                │
+stations ────────────────────────────────┐                       │
+  id, code (unique), name, city, state   │                       │
+                                         │                       │
+trains ──────────────────────────────────┤                       │
+  id, train_number (unique)              │                       │
+  source_station_id ──────────────────→ stations                 │
+  destination_station_id ─────────────→ stations                 │
+  days_of_week (JSON), is_active        │                        │
+                                        │                        │
+train_stops                             │                        │
+  train_id ────────────────────────────→ trains                  │
+  station_id ──────────────────────────→ stations                │
+  stop_order, arrival_time, departure_time, distance_km          │
+                                                                 │
+seat_classes                                                     │
+  train_id ────────────────────────────→ trains                  │
+  class_type (SL/3A/2A/1A/CC/EC/GN)                              │
+  available_seats, rac_available                                 │
+  current_waitlist, waitlist_quota                               │
+  base_fare_per_km                                               │
+                                                                 │
+bookings                                                         │
+  user_id ─────────────────────────────────────────────────────→ users
+  train_id ────────────────────────────→ trains                  │
+  seat_class_id ───────────────────────→ seat_classes            │
+  pnr (unique), status, payment_status                           │
+  idempotency_key (unique), refund_amount                        │
+                                                                 │
+passengers                                                       │
+  booking_id ──────────────────────────→ bookings                │
+  full_name, age, gender, berth_preference                       │
+  seat_number, coach_number, status, waitlist_number             │
 ```
 
 ---
 
-# 📈 Scalability Roadmap
+## 🚀 Getting Started
 
-## Level 1
-
-Monolithic Booking System
-
-* FastAPI
-* PostgreSQL
-
----
-
-## Level 2
-
-Concurrency Safe
-
-* SELECT FOR UPDATE
-* Repository Pattern
-* Waitlist Promotion
-* Idempotency
-* Alembic
-
----
-
-## Level 3
-
-Production Ready
-
-* Redis
-* RabbitMQ
-* Celery
-* Elasticsearch
-
----
-
-## Future Improvements
-
-### Payments
-
-* Stripe Integration
-* Webhook Verification
-
-### Real-Time Updates
-
-* WebSockets
-* Live Seat Availability
-
-### Monitoring
-
-* Prometheus
-* Grafana
-
-### Distributed Scaling
-
-* Kubernetes
-* Redis Distributed Locks
-* PgBouncer
-
----
-
-# 🧪 Testing
-
-Backend
+### Prerequisites
 
 ```bash
-pytest
+# All running inside WSL2 Ubuntu 22/24
+sudo service postgresql start    # port 5432
+sudo service redis-server start  # port 6379
+sudo service rabbitmq-server start  # port 5672
+sudo service elasticsearch start    # port 9200
 ```
 
-Frontend
+### Backend Setup
 
 ```bash
-npm test
+# 1. Clone and navigate
+git clone https://github.com/YOUR_USERNAME/railbook
+cd railbook/Ticket_System
+
+# 2. Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Configure environment
+cp .env.example .env
+# Edit .env with your DB credentials and secrets
+
+# 5. Run database migrations
+alembic upgrade head
+
+# 6. Seed initial data
+python3 seed_data.py
+
+# 7. Start the API server
+uvicorn main:app --reload --port 8000
+
+# 8. Seed Elasticsearch
+python3 seed_elasticsearch.py
 ```
 
-Build
+### Start Celery Workers
 
 ```bash
-npm run build
+# Terminal 2: Notification worker
+celery -A workers.celery_app worker --queues=notifications --loglevel=info
+
+# Terminal 3: Promotion worker
+celery -A workers.celery_app worker --queues=promotions --loglevel=info
+
+# Terminal 4: Monitor (optional)
+celery -A workers.celery_app flower --port=5555
+```
+
+### Frontend Setup
+
+```bash
+cd railbook/trainapp
+npm install
+
+# Configure API URL
+echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > .env.local
+
+npm run dev   # http://localhost:3000
+```
+
+### Test Accounts
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | admin@trainbooking.com | admin1234 |
+| User | user@test.com | user1234 |
+
+---
+
+## 🔌 API Reference
+
+### Authentication
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| POST | `/auth/register` | Public | Create account, returns JWT |
+| POST | `/auth/login` | Public | Email + password → JWT |
+| GET | `/auth/me` | Bearer | Current user profile |
+| POST | `/auth/logout` | Bearer | Revoke JWT (Redis blacklist) |
+
+### Trains & Stations
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/stations` | Public | List/search all stations |
+| GET | `/stations/search?q=` | Public | ES autocomplete |
+| POST | `/stations` | Admin | Create station |
+| GET | `/trains/search?q=` | Public | ES full-text train search |
+| POST | `/trains/search` | Public | Structured search (cached) |
+| GET | `/trains/{id}` | Public | Train detail with seat classes |
+| POST | `/trains` | Admin | Create train with stops and classes |
+| PUT | `/trains/{id}/status` | Admin | Toggle active/inactive |
+
+### Bookings
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| POST | `/bookings` | Bearer | Create booking (rate limited, idempotent) |
+| GET | `/bookings` | Bearer | My bookings (with status filter) |
+| GET | `/bookings/{id}` | Bearer | Single booking detail |
+| GET | `/bookings/pnr/{pnr}` | Public | PNR status lookup |
+| PUT | `/bookings/{id}/cancel` | Bearer | Cancel + trigger refund |
+| PUT | `/bookings/{id}/payment` | Bearer | Confirm payment |
+
+Interactive docs available at `http://localhost:8000/docs`
+
+---
+
+## 🧪 Key Scenarios to Test
+
+```bash
+# 1. Concurrent booking (race condition test)
+# Open two browser tabs, both on the same train/class with 1 seat left
+# Book simultaneously — only one should confirm, other goes to RAC/WL
+
+# 2. Idempotency
+curl -X POST http://localhost:8000/bookings \
+  -H "X-Idempotency-Key: test-key-123" \
+  -H "Authorization: Bearer TOKEN" \
+  -d '{...booking data...}'
+# Send the exact same request twice — should return same PNR both times
+
+# 3. Intermediate stop search
+# Train runs HWH → BWN → DGR → ASN
+# Search BWN → DGR — should return the train
+# Search HWH → ASN — should return the train
+
+# 4. Cache invalidation
+# Search NDLS → CSTM — note seat count (e.g. 64)
+# Book 2 seats
+# Search again — should show 62 (not 64 from stale cache)
+
+# 5. Rate limiting
+for i in {1..12}; do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8000/bookings ...
+done
+# Requests 11+ return 429 Too Many Requests
 ```
 
 ---
 
-# 🔒 Security
+## ⚙️ Environment Variables
 
-Implemented:
+```bash
+# PostgreSQL
+DATABASE_URL=postgresql://postgres:password@127.0.0.1:5432/train_booking
 
-* JWT Authentication
-* Password Hashing (bcrypt)
-* Token Expiration
-* Redis JWT Blacklist
-* Input Validation
-* SQL Injection Protection via ORM
+# JWT
+SECRET_KEY=your-secret-key-min-32-chars
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=60
 
-Future:
+# Redis
+REDIS_URL=redis://127.0.0.1:6379/0
+CACHE_TTL_SECONDS=300
+SEAT_CACHE_TTL=60
+SEARCH_CACHE_TTL=300
 
-* RBAC
-* OAuth2
-* Audit Logs
+# RabbitMQ / Celery
+RABBITMQ_URL=amqp://user:pass@127.0.0.1:5672/vhost
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/1
 
----
+# Elasticsearch
+ELASTICSEARCH_URL=http://127.0.0.1:9200
+ES_TRAINS_INDEX=trains
+ES_STATIONS_INDEX=stations
 
-# 🚀 Deployment
-
-Frontend
-
-* Vercel
-
-Backend
-
-* Railway
-
-Services
-
-* PostgreSQL
-* Redis
-* RabbitMQ
-* Elasticsearch
-
-Environment variables are managed securely using deployment platform secrets.
+# Email (Mailtrap for dev)
+SMTP_HOST=sandbox.smtp.mailtrap.io
+SMTP_PORT=587
+SMTP_USER=your_mailtrap_user
+SMTP_PASS=your_mailtrap_pass
+EMAIL_FROM=noreply@railbook.com
+```
 
 ---
 
-# 🎯 What This Project Demonstrates
+## 📊 System Health Check
 
-This project demonstrates practical understanding of:
+```bash
+curl http://localhost:8000/health
+```
 
-* Backend Engineering
-* Distributed Systems
-* Database Design
-* Concurrency Control
-* API Design
-* Caching
-* Asynchronous Processing
-* Search Infrastructure
-* System Design
-* Production Deployment
-
-Rather than being a CRUD application, RailBook focuses on solving real-world engineering problems encountered in high-traffic reservation systems.
+```json
+{
+  "status": "ok",
+  "level": 3,
+  "services": {
+    "redis": true,
+    "elasticsearch": true
+  }
+}
+```
 
 ---
 
-## 👨‍💻 Author
+## 🎯 What This Project Demonstrates
 
-**Soumyajit Bhandary**
+| Concept | Implementation |
+|---|---|
+| **Concurrency safety** | `SELECT FOR UPDATE` prevents double booking under parallel requests |
+| **Cache strategy** | Read-through cache with targeted invalidation on write |
+| **Async architecture** | Celery + RabbitMQ decouples HTTP response from I/O-heavy tasks |
+| **Search relevance** | Multi-field ES query with field boosting (`train_name^3`) and fuzzy matching |
+| **Idempotency** | Safe retries via client-generated keys + UNIQUE DB constraint |
+| **Clean architecture** | Repository pattern separates data access from business logic |
+| **Schema evolution** | Alembic migrations — zero-downtime schema changes |
+| **Rate limiting** | Sliding window algorithm using Redis sorted sets |
+| **Token revocation** | JWT blacklist in Redis with auto-expiry matching token TTL |
+| **Partial refunds** | Time-based refund policy matching real IRCTC rules |
+| **Waitlist cascade** | Priority queue promotion with async notifications |
+| **Type safety** | Pydantic v2 on backend, TypeScript on frontend, shared contract |
+| **Admin panel** | Role-based access, train/station management, system monitoring |
 
-Machine Learning • Data Engineering • Backend Systems • AI Applications
+---
 
-Built as a system-design-focused project to explore production-grade booking architecture and scalability patterns.
+## 🛣️ Build Progression (Levels)
+
+This project was built incrementally, each level introducing a new production concern:
+
+| Level | Focus | Key additions |
+|---|---|---|
+| **Level 1** | Monolith foundation | FastAPI + PostgreSQL + JWT + Booking logic + RAC/Waitlist |
+| **Level 2** | Correctness | `SELECT FOR UPDATE` + Repository pattern + Alembic + Idempotency + Partial refunds |
+| **Level 3** | Scale | Redis cache + Rate limiting + Celery/RabbitMQ + Elasticsearch + Async promotions |
+| **Frontend** | Full product | Next.js 14 + TypeScript + Admin panel + Real-time seat display |
+
+---
+
+## 📄 License
+
+MIT — feel free to use this as a reference or starting point.
+
+---
+
+<div align="center">
+
+Built with genuine curiosity about how production systems handle the hard problems.
+
+**Every bug in this repo was a real bug. Every fix was a real lesson.**
+
+</div>
